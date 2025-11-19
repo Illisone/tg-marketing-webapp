@@ -31,7 +31,7 @@
                 <h3>Тарифные планы</h3>
                 <div id="tariff_cards" class="tariff-container">
                     </div>
-                <button onclick="showCreateForm()" style="margin-top: 20px;">✅ Продолжить (Создать компанию)</button>
+                <button onclick="showCreateForm()" style="margin-top: 20px;">✅ Продолжить (Создать компанию)</button> 
                 <button onclick="showStartScreen()" style="margin-top: 10px;">⬅️ Назад</button>
             </div>
             
@@ -91,17 +91,25 @@
     <p id="status-message" class="status" style="margin-top: 15px;"></p>
 
     <script>
+        // Добавляем обработчик ошибок для дебага
+        window.onerror = function(message, source, lineno, colno, error) {
+            console.error(`JS Error: ${message} at line ${lineno}.`);
+            // Можно отправить уведомление в бот
+            // tg.sendData(JSON.stringify({ action: 'log_error', error_msg: `JS Error: ${message} at line ${lineno}` }));
+            return false; // Позволяем браузеру выводить ошибку в консоль
+        };
+        
         let tg = window.Telegram.WebApp;
         tg.expand();
         
-        // Объявления элементов
+        // Объявления элементов - УБЕДИТЕСЬ, что все ID существуют в HTML
         const loadingDiv = document.getElementById('loading');
         const mainContent = document.getElementById('main_content');
-        const startScreen = document.getElementById('start_screen');
-        const creationAndJoinInterface = document.getElementById('creation_and_join_interface');
-        const tariffSelectionInterface = document.getElementById('tariff_selection_interface'); 
+        const startScreen = document.getElementById('start_screen'); // <-- КРИТИЧНО
+        const creationAndJoinInterface = document.getElementById('creation_and_join_interface'); // <-- КРИТИЧНО
+        const tariffSelectionInterface = document.getElementById('tariff_selection_interface'); // <-- КРИТИЧНО
         const createForm = document.getElementById('create_form');
-        const joinForm = document.getElementById('join_form');
+        const joinForm = document.getElementById('join_form'); // <-- КРИТИЧНО
         const managementInterface = document.getElementById('management_interface');
         const statusMessage = document.getElementById('status-message');
         
@@ -115,12 +123,15 @@
         
         // Скрывает все экраны и показывает только нужный
         function setScreen(activeScreen) {
+            // Сброс всех главных контейнеров
             startScreen.style.display = 'none';
             creationAndJoinInterface.style.display = 'none';
+            managementInterface.style.display = 'none';
+
+            // Сброс внутренних форм
             tariffSelectionInterface.style.display = 'none';
             createForm.style.display = 'none';
             joinForm.style.display = 'none';
-            managementInterface.style.display = 'none';
 
             if (activeScreen === 'start') {
                 startScreen.style.display = 'block';
@@ -150,27 +161,29 @@
         
         tg.onEvent('message', (message) => {
             try {
+                // Проверяем, что сообщение - это JSON от бота
                 const payload = JSON.parse(message.text);
                 
                 if (payload.event === 'onCustomData' && payload.data) {
                     const data = JSON.parse(payload.data);
                     
-                    if (data.companies) {
+                    if (data.companies || data.tariffs) { // Если получили данные о компаниях/тарифах (стартовый ответ)
                         TARIFFS = data.tariffs || {}; 
                         renderCompanyData(data.companies);
                         loadingDiv.style.display = 'none';
                         mainContent.style.display = 'block';
-                    } else if (data.team) {
+                    } else if (data.team) { // Если получили список команды
                         renderTeamList(data.team);
                     }
                     
+                    // Обработка статусов успеха/ошибки
                     if (data.success) {
                         tg.showAlert(data.success);
                         statusMessage.className = 'status success';
                         statusMessage.textContent = data.success;
                         
                         if (data.reload) {
-                            loadCompanyData();
+                            loadCompanyData(); // Перезагружаем данные после создания/присоединения
                         }
                     } else if (data.error) {
                         tg.showAlert(data.error);
@@ -179,7 +192,10 @@
                     }
                 }
             } catch (e) {
-                console.warn('Ignoring non-WebApp JSON message:', e);
+                console.error('Ошибка обработки сообщения от бота:', e);
+                // Если не получилось распарсить JSON, то это может быть та самая "хуета"
+                document.getElementById('status-message').className = 'status error';
+                document.getElementById('status-message').textContent = 'Критическая ошибка: Неверный формат данных от сервера. Проверьте консоль.';
             }
         });
 
@@ -190,6 +206,7 @@
             const container = document.getElementById('tariff_cards');
             container.innerHTML = '';
 
+            // Сортируем тарифы по цене
             const sortedKeys = Object.keys(tariffs).sort((a, b) => (tariffs[a].price - tariffs[b].price));
 
             sortedKeys.forEach(key => {
@@ -211,11 +228,12 @@
                     <p class="members">${tariff.max_members} чел.</p>
                     <p class="price">${priceText}</p>
                     <p class="description">${tariff.description}</p>
+                    <p class="try-text">Нажмите, чтобы выбрать</p>
                 `;
                 container.appendChild(card);
             });
             
-            // Выделяем выбранный тариф
+            // Выделяем выбранный тариф по умолчанию (loner)
             selectTariff(selectedTariff);
         }
 
@@ -223,12 +241,13 @@
             selectedTariff = key;
             document.querySelectorAll('.tariff-card').forEach(card => card.classList.remove('selected'));
             
-            // Находим карточку по индексу в отсортированном списке
+            // Находим карточку по ключу и выделяем ее
+            const container = document.getElementById('tariff_cards');
             const sortedKeys = Object.keys(TARIFFS).sort((a, b) => (TARIFFS[a].price - TARIFFS[b].price));
             const index = sortedKeys.indexOf(key);
             
-            if (index !== -1) {
-                document.querySelector(`.tariff-container > .tariff-card:nth-child(${index + 1})`).classList.add('selected');
+            if (index !== -1 && container.children[index]) {
+                container.children[index].classList.add('selected');
             }
             // Обновляем название тарифа в форме создания
             document.getElementById('selected_tariff_name').textContent = TARIFFS[selectedTariff]?.name || 'Не выбран';
@@ -241,12 +260,13 @@
             loadingDiv.style.display = 'block';
             mainContent.style.display = 'none';
             statusMessage.textContent = 'Загрузка данных...';
+            // Отправляем запрос, который вернет список компаний пользователя И список тарифов
             tg.sendData(JSON.stringify({ action: 'get_user_companies' }));
         }
         
         function renderCompanyData(companies) {
             
-            if (companies.length === 0) {
+            if (!companies || companies.length === 0) {
                 // Если нет компаний, показываем стартовый экран
                 setScreen('start'); 
                 return;
@@ -258,6 +278,7 @@
             const listDiv = document.getElementById('company_list');
             listDiv.innerHTML = '';
             
+            // Находим текущую компанию (is_current: true) или берем первую
             const currentCompany = companies.find(c => c.is_current) || companies[0];
             
             if (currentCompany) {
@@ -283,7 +304,7 @@
             companies.forEach(company => {
                 const btn = document.createElement('button');
                 btn.textContent = `${company.name} (${company.role}) ${company.is_current ? '✅' : ''}`;
-                btn.style.marginRight = '10px';
+                btn.className = 'small-button';
                 btn.style.opacity = company.is_current ? 1 : 0.7;
                 btn.onclick = () => switchCompany(company.id, company.name);
                 listDiv.appendChild(btn);
@@ -333,7 +354,7 @@
         }
 
 
-        // --- ФУНКЦИИ УПРАВЛЕНИЯ КОМАНДОЙ (оставлены без изменений) ---
+        // --- ФУНКЦИИ УПРАВЛЕНИЯ КОМАНДОЙ ---
 
         function loadTeamData(companyId) {
             tg.sendData(JSON.stringify({ 
@@ -355,13 +376,14 @@
                 const roleCell = row.insertCell();
                 const actionCell = row.insertCell();
                 
+                // Только владелец/партнер может менять роли, кроме своей
                 if (['владелец', 'партнер'].includes(userRole) && member.id !== tg.initDataUnsafe.user.id) {
                     const select = document.createElement('select');
                     select.id = `role_${member.id}`;
                     
                     const roles = ['маркетолог'];
                     if (userRole === 'владелец') {
-                        roles.unshift('партнер', 'владелец'); 
+                        roles.unshift('партнер'); 
                     }
                     
                     [...new Set(roles)].forEach(role => {
@@ -375,7 +397,7 @@
                     });
                     roleCell.appendChild(select);
 
-                    actionCell.innerHTML = `<button onclick="changeRole(${member.id}, document.getElementById('role_${member.id}').value)">Сохранить</button>`;
+                    actionCell.innerHTML = `<button onclick="changeRole(${member.id}, document.getElementById('role_${member.id}').value)" class="small-button">Сохранить</button>`;
                 } else {
                     roleCell.textContent = member.role.charAt(0).toUpperCase() + member.role.slice(1);
                     actionCell.textContent = member.role === 'владелец' ? 'Владелец' : '-';
