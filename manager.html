@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Управление Компанией</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        /* CSS стили для интеграции с темой Telegram */
+        body { font-family: Arial, sans-serif; padding: 15px; background-color: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); }
+        h1, h2 { color: var(--tg-theme-text-color); }
+        .form-group { margin-bottom: 15px; padding: 10px; border: 1px solid var(--tg-theme-hint-color); border-radius: 8px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"], select { width: 100%; padding: 10px; box-sizing: border-box; border: 1px solid var(--tg-theme-hint-color); border-radius: 5px; background-color: var(--tg-theme-secondary-bg-color); color: var(--tg-theme-text-color); margin-bottom: 10px; }
+        button { background-color: var(--tg-theme-button-color); color: var(--tg-theme-button-text-color); padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; margin-top: 5px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 10px; border: 1px solid var(--tg-theme-hint-color); text-align: left; }
+        .status { margin-top: 10px; font-weight: bold; }
+        .current-company { border: 2px solid var(--tg-theme-button-color); padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <h1>👑 Управление компанией</h1>
+    
+    <div id="loading" class="status">Загрузка данных...</div>
+    <div id="main_content" style="display: none;">
+        
+        <div id="create_form" style="display: none;">
+            <h2>Создать новую компанию</h2>
+            <div class="form-group">
+                <label for="company_name">Название компании:</label>
+                <input type="text" id="company_name" placeholder="Моя Маркетинговая Команда">
+                
+                <label for="company_code">Секретный код (для вступления, >3 симв.):</label>
+                <input type="text" id="company_code" placeholder="SECRET2024">
+                
+                <button onclick="createCompany()">Создать и стать Владельцем</button>
+            </div>
+        </div>
+
+        <div id="management_interface" style="display: none;">
+            <div id="current_company_info" class="current-company"></div>
+            
+            <div id="company_selector" class="form-group" style="display: none;">
+                <h2>Выбрать активную компанию</h2>
+                <select id="company_list_select" onchange="switchCompany(this.value)"></select>
+            </div>
+            
+            <div id="team_management" style="display: none;">
+                <h2>Добавить нового сотрудника</h2>
+                <div class="form-group">
+                    <label for="new_member_id">Юзернейм (@username) или Telegram ID:</label>
+                    <input type="text" id="new_member_id" placeholder="@username или 123456789">
+                    <button onclick="addMember()">Добавить в команду</button>
+                </div>
+
+                <h2>Состав команды</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Имя</th>
+                            <th>ID</th>
+                            <th>Роль</th>
+                            <th>Действие</th>
+                        </tr>
+                    </thead>
+                    <tbody id="team_list">
+                        </tbody>
+                </table>
+                <button onclick="showCreateForm()">Создать еще одну компанию</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="status_message" class="status"></div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        const mainContent = document.getElementById('main_content');
+        const loading = document.getElementById('loading');
+        const createForm = document.getElementById('create_form');
+        const managementInterface = document.getElementById('management_interface');
+        const teamManagement = document.getElementById('team_management');
+        const companySelector = document.getElementById('company_selector');
+        const companyListSelect = document.getElementById('company_list_select');
+        const teamListBody = document.getElementById('team_list');
+        const statusMessage = document.getElementById('status_message');
+        const currentCompanyInfo = document.getElementById('current_company_info');
+
+        let currentCompanyId = null;
+        let isOwner = false;
+
+        tg.ready();
+        
+        // --- 1. ЛОГИКА ЗАГРУЗКИ ДАННЫХ И УСЛОВНОГО ОТОБРАЖЕНИЯ ---
+        function loadCompanyData() {
+            loading.style.display = 'block';
+            mainContent.style.display = 'none';
+            // Запрашиваем список всех компаний, где числится пользователь
+            tg.sendData(JSON.stringify({ action: 'get_user_companies' }));
+        }
+
+        tg.onEvent('onCustomEvent', (event) => {
+            if (event.event === 'onCustomData') {
+                const data = JSON.parse(event.data);
+                
+                if (data.success) {
+                    statusMessage.textContent = data.success;
+                    if (data.reload) {
+                         loadCompanyData(); 
+                    } else if (data.success.includes("добавлен")) {
+                        tg.sendData(JSON.stringify({ action: 'get_team' })); // Обновить список команды
+                    }
+                } else if (data.error) {
+                    statusMessage.textContent = `❌ Ошибка: ${data.error}`;
+                } else if (data.companies) {
+                    handleCompaniesList(data.companies);
+                } else if (data.team) {
+                    displayTeam(data.team);
+                    loading.style.display = 'none';
+                    mainContent.style.display = 'block';
+                }
+            }
+        });
+
+        function handleCompaniesList(companies) {
+            loading.style.display = 'none';
+            mainContent.style.display = 'block';
+            statusMessage.textContent = '';
+            
+            createForm.style.display = 'none';
+            managementInterface.style.display = 'block';
+
+            // Если компаний нет, показать форму создания
+            if (companies.length === 0) {
+                showCreateForm();
+                managementInterface.style.display = 'none';
+                return;
+            }
+            
+            // Найти текущую активную компанию
+            const currentCompany = companies.find(c => c.is_current);
+
+            // 1. Отображение селектора, если компаний > 1
+            if (companies.length > 1) {
+                companySelector.style.display = 'block';
+                companyListSelect.innerHTML = '';
+                companies.forEach(c => {
+                    const option = document.createElement('option');
+                    option.value = c.id;
+                    option.textContent = `${c.name} (${c.role.toUpperCase()})` + (c.is_current ? ' - ТЕКУЩАЯ' : '');
+                    if (c.is_current) option.selected = true;
+                    companyListSelect.appendChild(option);
+                });
+            } else {
+                companySelector.style.display = 'none';
+            }
+
+
+            // 2. Отображение текущей информации и интерфейса управления
+            if (currentCompany) {
+                currentCompanyId = currentCompany.id;
+                isOwner = currentCompany.role === 'владелец';
+                
+                currentCompanyInfo.innerHTML = `
+                    <h3>Активная компания: ${currentCompany.name} (Код: ${currentCompany.secret_code})</h3>
+                    <p>Ваша роль: <strong>${currentCompany.role.toUpperCase()}</strong></p>
+                `;
+                
+                if (isOwner) {
+                    teamManagement.style.display = 'block';
+                    tg.sendData(JSON.stringify({ action: 'get_team' }));
+                } else {
+                    teamManagement.style.display = 'none';
+                    statusMessage.textContent = "Вы являетесь сотрудником. Управлять командой может только Владелец."
+                }
+            } else {
+                 // Если пользователь состоит в нескольких компаниях, но не выбрана текущая
+                 // В этом коде текущая компания всегда должна быть, если список companies не пуст,
+                 // но это можно использовать как запасной вариант.
+                 statusMessage.textContent = "Выберите активную компанию из списка выше.";
+            }
+        }
+        
+        // --- 2. ДЕЙСТВИЯ: СОЗДАНИЕ, ПЕРЕКЛЮЧЕНИЕ, УПРАВЛЕНИЕ ---
+
+        function showCreateForm() {
+            createForm.style.display = 'block';
+            teamManagement.style.display = 'none';
+            companySelector.style.display = 'none';
+            currentCompanyInfo.style.display = 'none';
+        }
+
+        function createCompany() {
+            const name = document.getElementById('company_name').value.trim();
+            const code = document.getElementById('company_code').value.trim();
+            
+            if (!name || code.length < 3) {
+                statusMessage.textContent = "Введите корректное название и код (>3 символов).";
+                return;
+            }
+            
+            statusMessage.textContent = "Отправка запроса на создание компании...";
+            tg.sendData(JSON.stringify({
+                action: 'create_company_from_webapp',
+                name: name,
+                code: code
+            }));
+        }
+
+        function switchCompany(newCompanyId) {
+            statusMessage.textContent = "Переключение компании...";
+            tg.sendData(JSON.stringify({
+                action: 'switch_company',
+                company_id: parseInt(newCompanyId)
+            }));
+            // Ответ от бота с флагом 'reload' вызовет loadCompanyData()
+        }
+
+        function displayTeam(members) {
+            teamListBody.innerHTML = '';
+            members.forEach(member => {
+                const row = teamListBody.insertRow();
+                row.insertCell().textContent = member.name || member.username || 'Нет имени';
+                row.insertCell().textContent = member.id;
+                
+                const roleCell = row.insertCell();
+                const select = document.createElement('select');
+                select.id = `role_${member.id}`;
+                
+                ['владелец', 'партнер', 'маркетолог'].forEach(role => {
+                    const option = document.createElement('option');
+                    option.value = role;
+                    option.textContent = role.charAt(0).toUpperCase() + role.slice(1);
+                    if (role === member.role) option.selected = true;
+                    select.appendChild(option);
+                });
+                roleCell.appendChild(select);
+
+                const actionCell = row.insertCell();
+                if (member.role !== 'владелец' || member.id === tg.initDataUnsafe.user.id) {
+                    // Кнопка сохранения для всех, кроме других Владельцев
+                    actionCell.innerHTML = `<button onclick="changeRole(${member.id}, document.getElementById('role_${member.id}').value)">Сохранить</button>`;
+                } else {
+                    actionCell.textContent = 'Владелец';
+                }
+            });
+        }
+
+        function changeRole(targetId, newRole) {
+            statusMessage.textContent = `Изменение роли ${targetId} на ${newRole}...`;
+            tg.sendData(JSON.stringify({ 
+                action: 'set_role', 
+                target_id: targetId, 
+                new_role: newRole 
+            }));
+        }
+
+        function addMember() {
+            const identifier = document.getElementById('new_member_id').value.trim();
+            if (!identifier) {
+                statusMessage.textContent = "Введите юзернейм или ID.";
+                return;
+            }
+            
+            statusMessage.textContent = `Добавление ${identifier}...`;
+            tg.sendData(JSON.stringify({ 
+                action: 'add_member', 
+                identifier: identifier
+            }));
+            document.getElementById('new_member_id').value = '';
+        }
+        
+        // Запускаем загрузку данных при инициализации
+        loadCompanyData();
+
+    </script>
+</body>
+</html>
