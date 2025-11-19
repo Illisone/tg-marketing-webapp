@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketing Analyzer</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        /* Стили в темной теме Telegram */
+        body {
+            background-color: var(--tg-theme-bg-color, #212121);
+            color: var(--tg-theme-text-color, #ffffff);
+            font-family: sans-serif;
+            padding: 20px;
+        }
+        .card {
+            background-color: var(--tg-theme-secondary-bg-color, #333);
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border: 1px solid #555;
+            background: #444;
+            color: white;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 15px;
+            background-color: var(--tg-theme-button-color, #2481cc);
+            color: var(--tg-theme-button-text-color, #fff);
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .result-box {
+            margin-top: 15px;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+            text-align: center;
+            font-weight: bold;
+        }
+        .status-stop { background-color: #ff4d4d; color: white; }
+        .status-test { background-color: #ffcc00; color: black; }
+        .status-scale { background-color: #00cc66; color: white; }
+    </style>
+</head>
+<body>
+
+    <h2>📊 Анализ объявления</h2>
+    
+    <div class="card">
+        <label>Количество показов:</label>
+        <input type="number" id="impressions" placeholder="Например: 1200">
+        
+        <label>Количество кликов:</label>
+        <input type="number" id="clicks" placeholder="Например: 15">
+
+        <div style="margin-top: 10px;">
+            <label><input type="checkbox" id="is_b2b" style="width: auto;"> Это B2B / Сложная ниша</label>
+        </div>
+    </div>
+
+    <button onclick="calculate()">Рассчитать статус</button>
+
+    <div id="result" class="result-box"></div>
+
+    <script>
+        // Сообщаем Телеграму, что приложение готово
+        let tg = window.Telegram.WebApp;
+        tg.expand(); 
+
+        function calculate() {
+            let imp = document.getElementById('impressions').value;
+            let clicks = document.getElementById('clicks').value;
+            let isB2B = document.getElementById('is_b2b').checked;
+            let resultBox = document.getElementById('result');
+
+            if (!imp || !clicks) {
+                alert("Заполни оба поля!");
+                return;
+            }
+
+            let ctr = (clicks / imp) * 100;
+            let status = "";
+            let className = "";
+            let message = "";
+
+            // ТВОЯ ЛОГИКА ИЗ EXCEL
+            if (imp < 1000) {
+                status = "⏳ МАЛО ДАННЫХ";
+                message = "Нужно минимум 1000 показов для решения.";
+                className = "status-test";
+            } else {
+                // Пороги CTR
+                let stopLimit = isB2B ? 0.2 : 0.3;
+                let scaleLimit = isB2B ? 0.5 : 1.0;
+
+                if (ctr < stopLimit) {
+                    status = "🔴 СТОП";
+                    message = "Объявление слабое, не зацепило. Выключай.";
+                    className = "status-stop";
+                } else if (ctr >= stopLimit && ctr <= scaleLimit) {
+                    status = "🟡 ТЕСТ";
+                    message = "Есть клики. Попробуй добавить баннер или сменить оффер.";
+                    className = "status-test";
+                } else {
+                    status = "🟢 МАСШТАБИРУЙ";
+                    message = "Отличный результат! Проверяй цену лида (CPL).";
+                    className = "status-scale";
+                }
+            }
+
+            // Вывод результата
+            resultBox.style.display = "block";
+            resultBox.className = "result-box " + className;
+            resultBox.innerHTML = `CTR: ${ctr.toFixed(2)}%<br><h2>${status}</h2><p>${message}</p>`;
+        }
+    </script>
+</body>
+</html>
