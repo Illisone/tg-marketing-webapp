@@ -109,7 +109,7 @@
                     if (data.reload) {
                          loadCompanyData(); 
                     } else if (data.success.includes("добавлен")) {
-                        tg.sendData(JSON.stringify({ action: 'get_team' })); // Обновить список команды
+                        tg.sendData(JSON.stringify({ action: 'get_team' })); 
                     }
                 } else if (data.error) {
                     statusMessage.textContent = `❌ Ошибка: ${data.error}`;
@@ -131,14 +131,12 @@
             createForm.style.display = 'none';
             managementInterface.style.display = 'block';
 
-            // Если компаний нет, показать форму создания
             if (companies.length === 0) {
                 showCreateForm();
                 managementInterface.style.display = 'none';
                 return;
             }
             
-            // Найти текущую активную компанию
             const currentCompany = companies.find(c => c.is_current);
 
             // 1. Отображение селектора, если компаний > 1
@@ -169,16 +167,12 @@
                 
                 if (isOwner) {
                     teamManagement.style.display = 'block';
+                    // Запрос списка команды
                     tg.sendData(JSON.stringify({ action: 'get_team' }));
                 } else {
                     teamManagement.style.display = 'none';
                     statusMessage.textContent = "Вы являетесь сотрудником. Управлять командой может только Владелец."
                 }
-            } else {
-                 // Если пользователь состоит в нескольких компаниях, но не выбрана текущая
-                 // В этом коде текущая компания всегда должна быть, если список companies не пуст,
-                 // но это можно использовать как запасной вариант.
-                 statusMessage.textContent = "Выберите активную компанию из списка выше.";
             }
         }
         
@@ -214,7 +208,6 @@
                 action: 'switch_company',
                 company_id: parseInt(newCompanyId)
             }));
-            // Ответ от бота с флагом 'reload' вызовет loadCompanyData()
         }
 
         function displayTeam(members) {
@@ -239,7 +232,6 @@
 
                 const actionCell = row.insertCell();
                 if (member.role !== 'владелец' || member.id === tg.initDataUnsafe.user.id) {
-                    // Кнопка сохранения для всех, кроме других Владельцев
                     actionCell.innerHTML = `<button onclick="changeRole(${member.id}, document.getElementById('role_${member.id}').value)">Сохранить</button>`;
                 } else {
                     actionCell.textContent = 'Владелец';
