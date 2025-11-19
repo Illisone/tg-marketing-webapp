@@ -5,19 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Управление Компанией</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <style>
-        /* CSS стили для интеграции с темой Telegram */
-        body { font-family: Arial, sans-serif; padding: 15px; background-color: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); }
-        h1, h2 { color: var(--tg-theme-text-color); }
-        .form-group { margin-bottom: 15px; padding: 10px; border: 1px solid var(--tg-theme-hint-color); border-radius: 8px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input[type="text"], select { width: 100%; padding: 10px; box-sizing: border-box; border: 1px solid var(--tg-theme-hint-color); border-radius: 5px; background-color: var(--tg-theme-secondary-bg-color); color: var(--tg-theme-text-color); margin-bottom: 10px; }
-        button { background-color: var(--tg-theme-button-color); color: var(--tg-theme-button-text-color); padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; margin-top: 5px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { padding: 10px; border: 1px solid var(--tg-theme-hint-color); text-align: left; }
-        .status { margin-top: 10px; font-weight: bold; }
-        .current-company { border: 2px solid var(--tg-theme-button-color); padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-    </style>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <h1>👑 Управление компанией</h1>
@@ -105,14 +93,16 @@
                 const data = JSON.parse(event.data);
                 
                 if (data.success) {
-                    statusMessage.textContent = data.success;
+                    tg.showAlert(data.success);
                     if (data.reload) {
                          loadCompanyData(); 
-                    } else if (data.success.includes("добавлен")) {
+                    } else if (data.success.includes("добавлен") || data.success.includes("Роль")) {
                         tg.sendData(JSON.stringify({ action: 'get_team' })); 
                     }
+                    statusMessage.textContent = ''; 
                 } else if (data.error) {
-                    statusMessage.textContent = `❌ Ошибка: ${data.error}`;
+                    tg.showAlert(`❌ Ошибка: ${data.error}`);
+                    statusMessage.textContent = '';
                 } else if (data.companies) {
                     handleCompaniesList(data.companies);
                 } else if (data.team) {
@@ -123,6 +113,9 @@
             }
         });
 
+        // Установка стартового тарифа при создании
+        let defaultTariff = new URLSearchParams(window.location.search).get('tariff');
+        
         function handleCompaniesList(companies) {
             loading.style.display = 'none';
             mainContent.style.display = 'block';
@@ -146,7 +139,7 @@
                 companies.forEach(c => {
                     const option = document.createElement('option');
                     option.value = c.id;
-                    option.textContent = `${c.name} (${c.role.toUpperCase()})` + (c.is_current ? ' - ТЕКУЩАЯ' : '');
+                    option.textContent = `${c.name} (Тариф: ${c.tariff.toUpperCase()})` + (c.is_current ? ' - ТЕКУЩАЯ' : '');
                     if (c.is_current) option.selected = true;
                     companyListSelect.appendChild(option);
                 });
@@ -161,8 +154,10 @@
                 isOwner = currentCompany.role === 'владелец';
                 
                 currentCompanyInfo.innerHTML = `
-                    <h3>Активная компания: ${currentCompany.name} (Код: ${currentCompany.secret_code})</h3>
+                    <h3>Активная компания: ${currentCompany.name}</h3>
+                    <p>Тариф: <strong>${currentCompany.tariff.toUpperCase()}</strong></p>
                     <p>Ваша роль: <strong>${currentCompany.role.toUpperCase()}</strong></p>
+                    <p>Код для вступления: <code>${currentCompany.secret_code}</code></p>
                 `;
                 
                 if (isOwner) {
@@ -183,6 +178,10 @@
             teamManagement.style.display = 'none';
             companySelector.style.display = 'none';
             currentCompanyInfo.style.display = 'none';
+            
+            if (defaultTariff) {
+                document.querySelector('#create_form h2').textContent = `Создать компанию (Тариф: ${defaultTariff.toUpperCase()})`;
+            }
         }
 
         function createCompany() {
@@ -190,7 +189,7 @@
             const code = document.getElementById('company_code').value.trim();
             
             if (!name || code.length < 3) {
-                statusMessage.textContent = "Введите корректное название и код (>3 символов).";
+                tg.showAlert("Введите корректное название и секретный код (>3 символов).");
                 return;
             }
             
@@ -198,7 +197,8 @@
             tg.sendData(JSON.stringify({
                 action: 'create_company_from_webapp',
                 name: name,
-                code: code
+                code: code,
+                tariff: defaultTariff 
             }));
         }
 
@@ -212,29 +212,38 @@
 
         function displayTeam(members) {
             teamListBody.innerHTML = '';
+            
+            // Сначала сортируем: владелец, партнер, маркетолог
+            members.sort((a, b) => {
+                const order = { 'владелец': 3, 'партнер': 2, 'маркетолог': 1 };
+                return order[b.role] - order[a.role];
+            });
+            
             members.forEach(member => {
                 const row = teamListBody.insertRow();
                 row.insertCell().textContent = member.name || member.username || 'Нет имени';
                 row.insertCell().textContent = member.id;
                 
                 const roleCell = row.insertCell();
-                const select = document.createElement('select');
-                select.id = `role_${member.id}`;
-                
-                ['владелец', 'партнер', 'маркетолог'].forEach(role => {
-                    const option = document.createElement('option');
-                    option.value = role;
-                    option.textContent = role.charAt(0).toUpperCase() + role.slice(1);
-                    if (role === member.role) option.selected = true;
-                    select.appendChild(option);
-                });
-                roleCell.appendChild(select);
-
                 const actionCell = row.insertCell();
-                if (member.role !== 'владелец' || member.id === tg.initDataUnsafe.user.id) {
+                
+                // Только владелец может менять роли
+                if (isOwner && member.id !== tg.initDataUnsafe.user.id) {
+                    const select = document.createElement('select');
+                    select.id = `role_${member.id}`;
+                    
+                    ['владелец', 'партнер', 'маркетолог'].forEach(role => {
+                        const option = document.createElement('option');
+                        option.value = role;
+                        option.textContent = role.charAt(0).toUpperCase() + role.slice(1);
+                        if (role === member.role) option.selected = true;
+                        select.appendChild(option);
+                    });
+                    roleCell.appendChild(select);
                     actionCell.innerHTML = `<button onclick="changeRole(${member.id}, document.getElementById('role_${member.id}').value)">Сохранить</button>`;
                 } else {
-                    actionCell.textContent = 'Владелец';
+                    roleCell.textContent = member.role.charAt(0).toUpperCase() + member.role.slice(1);
+                    actionCell.textContent = member.role === 'владелец' ? 'Главный' : '-'; 
                 }
             });
         }
@@ -251,7 +260,7 @@
         function addMember() {
             const identifier = document.getElementById('new_member_id').value.trim();
             if (!identifier) {
-                statusMessage.textContent = "Введите юзернейм или ID.";
+                tg.showAlert("Введите юзернейм или ID.");
                 return;
             }
             
