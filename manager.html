@@ -14,15 +14,31 @@
     <div id="main_content" style="display: none;">
         
         <div id="create_form" style="display: none;">
-            <h2>Создать новую компанию</h2>
-            <div class="form-group">
-                <label for="company_name">Название компании:</label>
-                <input type="text" id="company_name" placeholder="Моя Маркетинговая Команда">
+            <div id="tariff_selection">
+                <h2>1. Выберите режим</h2>
+                <div id="tariff_options" class="tariff-options-container"></div>
                 
-                <label for="company_code">Секретный код (для вступления, >3 симв.):</label>
-                <input type="text" id="company_code" placeholder="SECRET2024">
-                
-                <button onclick="createCompany()">Создать и стать Владельцем</button>
+                <h2 style="margin-top: 20px;">2. Данные для компании</h2>
+                <div class="form-group">
+                    <label for="company_name">Название компании:</label>
+                    <input type="text" id="company_name" placeholder="Моя Маркетинговая Команда">
+                    
+                    <label for="company_code_create">Секретный код (для вступления, >3 симв.):</label>
+                    <input type="text" id="company_code_create" placeholder="SECRET2024">
+                    
+                    <button onclick="createCompany()">Создать компанию (Владелец)</button>
+                </div>
+            </div>
+
+            <hr style="margin: 30px 0; border-color: var(--tg-theme-hint-color);">
+
+            <div id="join_form">
+                <h2>Или 3. Присоединиться к команде</h2>
+                <div class="form-group">
+                    <label for="join_code">Секретный код компании:</label>
+                    <input type="text" id="join_code" placeholder="Введите код, который вам дали">
+                    <button onclick="joinTeam()">Присоединиться</button>
+                </div>
             </div>
         </div>
 
@@ -69,6 +85,7 @@
         
         let currentCompanyId = null; 
         let userRole = null; 
+        let TARIFFS = {}; // <<< Глобальная переменная для хранения тарифов
 
         // --- КРИТИЧЕСКИ ВАЖНЫЙ ЛИСЕНЕР ДЛЯ ПЕРЕХВАТА ОТВЕТОВ БОТА ---
         tg.onEvent('message', (message) => {
@@ -79,6 +96,7 @@
                     const data = JSON.parse(payload.data);
                     
                     if (data.companies) {
+                        TARIFFS = data.tariffs || {}; // <<< Сохраняем тарифы
                         renderCompanyData(data.companies);
                         loadingDiv.style.display = 'none';
                         mainContent.style.display = 'block';
@@ -122,6 +140,7 @@
             if (companies.length === 0) {
                 createForm.style.display = 'block';
                 managementInterface.style.display = 'none';
+                renderTariffOptions(TARIFFS); // <<< Рендерим выбор тарифов
                 return;
             }
 
@@ -168,11 +187,59 @@
             }));
         }
 
-        // НОВАЯ/ИСПРАВЛЕННАЯ ФУНКЦИЯ
+        // <<< НОВАЯ ФУНКЦИЯ: РЕНДЕРИНГ ТАРИФОВ >>>
+        function renderTariffOptions(tariffs) {
+            const container = document.getElementById('tariff_options');
+            container.innerHTML = '';
+            
+            // Сортировка для удобства
+            const tariffKeys = Object.keys(tariffs).sort((a, b) => {
+                if (a === 'loner') return -1;
+                if (b === 'loner') return 1;
+                return 0;
+            });
+
+            tariffKeys.forEach((key, index) => {
+                const detail = tariffs[key];
+                const isDefault = key === 'loner'; // Выбираем 'loner' по умолчанию
+
+                const html = `
+                    <div class="tariff-card ${isDefault ? 'selected' : ''}" 
+                         onclick="document.getElementById('tariff_${key}').checked = true; updateSelectedTariff(this);">
+                        <input type="radio" id="tariff_${key}" name="selected_tariff" value="${key}" ${isDefault ? 'checked' : ''} style="display: none;">
+                        <h4>${detail.name}</h4>
+                        <p>${detail.description}</p>
+                        <p><strong>👥 До ${detail.max_members} чел. | 💸 ${detail.price}$/мес</strong></p>
+                    </div>
+                `;
+                container.innerHTML += html;
+            });
+
+            // Обновляем выделение при выборе
+            updateSelectedTariff(container.querySelector('.tariff-card.selected'));
+        }
+
+        function updateSelectedTariff(cardElement) {
+            document.querySelectorAll('.tariff-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            if(cardElement) {
+                cardElement.classList.add('selected');
+            }
+        }
+        
+        // <<< ОБНОВЛЕННАЯ ФУНКЦИЯ: createCompany >>>
         function createCompany() {
             const name = document.getElementById('company_name').value.trim();
-            const code = document.getElementById('company_code').value.trim().toUpperCase();
+            const code = document.getElementById('company_code_create').value.trim().toUpperCase();
+            const selectedTariff = document.querySelector('input[name="selected_tariff"]:checked');
 
+            if (!selectedTariff) {
+                tg.showAlert('Выберите тарифный план.');
+                return;
+            }
+            const tariff = selectedTariff.value;
+            
             if (name.length < 3 || code.length < 3) {
                 tg.showAlert('Название и код должны быть не менее 3 символов.');
                 return;
@@ -183,9 +250,27 @@
                 action: 'create_company_from_webapp', 
                 name: name, 
                 code: code,
-                tariff: 'standard' // Или 'loner', если это пробный запуск
+                tariff: tariff // <<< ДИНАМИЧЕСКИЙ ТАРИФ
             }));
         }
+
+        // <<< НОВАЯ ФУНКЦИЯ: joinTeam >>>
+        function joinTeam() {
+            const joinCode = document.getElementById('join_code').value.trim().toUpperCase();
+            
+            if (joinCode.length < 3) {
+                tg.showAlert('Введите корректный секретный код компании.');
+                return;
+            }
+            
+            statusMessage.textContent = `Попытка присоединиться к команде...`;
+            tg.sendData(JSON.stringify({ 
+                action: 'join_team', 
+                code: joinCode
+            }));
+            document.getElementById('join_code').value = '';
+        }
+        
 
         // --- ФУНКЦИИ УПРАВЛЕНИЯ КОМАНДОЙ ---
 
